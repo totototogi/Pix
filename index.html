@@ -84,6 +84,10 @@ textarea{width:100%;box-sizing:border-box;height:120px;font-family:var(--f-mono)
 .clipbox{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .leg{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:.78rem;color:var(--muted)}
 .leg i{display:inline-block;width:14px;height:0;border-top:3px solid;vertical-align:middle;margin-right:4px}
+table.px td.mk{box-shadow:inset 0 0 0 3px #00d8f0}
+.btn[aria-pressed="true"]{background:#00d8f0;border-color:#00d8f0;color:#06222a;font-weight:700}
+.chk{display:flex;gap:6px;align-items:center;font-size:.85rem}
+ol.steps{margin:0;padding-left:1.3em;font-size:.86rem;color:var(--muted);display:flex;flex-direction:column;gap:2px}
 #outImg{max-width:100%;image-rendering:pixelated;border:1px solid var(--line);border-radius:6px}
 @media (prefers-reduced-motion:no-preference){.btn{transition:filter .15s}.btn:hover{filter:brightness(1.06)}}
 
@@ -116,7 +120,7 @@ textarea{width:100%;box-sizing:border-box;height:120px;font-family:var(--f-mono)
       <span class="tag" id="sizeTag"></span>
     </div>
     <div class="stage"><canvas id="view" aria-label="拡大した画像。タップでピクセルを選択"></canvas></div>
-    <div class="leg"><span><i style="border-color:#ff2d55"></i>選択中のマス（十字の中心）</span><span><i style="border-color:var(--accent)"></i>数値表の範囲</span><span><i style="border-color:#ffb020;border-top-style:dashed"></i>コピー範囲</span></div>
+    <div class="leg"><span><i style="border-color:#ff2d55"></i>選択中のマス（十字の中心）</span><span><i style="border-color:var(--accent)"></i>数値表の範囲</span><span><i style="border-color:#ffb020;border-top-style:dashed"></i>コピー・自動選択の範囲</span><span><i style="border-color:#00d8f0;border-top-width:8px"></i>消すマーク</span></div>
     <div class="navrow">
       <div class="nudge" role="group" aria-label="選択を1マスずつ動かす">
         <span></span><button class="btn" type="button" data-d="0,-1" aria-label="上へ">↑</button><span></span>
@@ -182,7 +186,36 @@ textarea{width:100%;box-sizing:border-box;height:120px;font-family:var(--f-mono)
   </section>
 
   <section class="sec">
-    <h2>6. 書き出す</h2>
+    <h2>6. なじませて消す</h2>
+    <p class="note">線やほくろなど、消したいマスに印を付けると、周りの色から自然につながる色を計算して埋めます。コピーと違って1マスずつ周りに合わせた値になるので、継ぎ目が出にくくなります。</p>
+    <ol class="steps">
+      <li>黄色の点線（5の幅・高さと選択中のマス）を、消したい部分を囲むように合わせる</li>
+      <li>「範囲の中の暗い部分を自動で選ぶ」で、水色の印が付く</li>
+      <li>足りない所は「タップで印を付ける」をオンにして、画像か数値表をタップして追加・解除</li>
+      <li>線の縁も消すために「印を1マス広げる」を1回押してから「なじませて消す」</li>
+    </ol>
+    <div class="row">
+      <select id="sens" aria-label="自動で選ぶ強さ">
+        <option value="35">はっきりした線だけ</option>
+        <option value="20" selected>ふつう</option>
+        <option value="12">うすい線も</option>
+      </select>
+      <button class="btn" id="autoMark" type="button">範囲の中の暗い部分を自動で選ぶ</button>
+    </div>
+    <div class="row">
+      <button class="btn" id="markMode" type="button" aria-pressed="false">タップで印を付ける：オフ</button>
+      <button class="btn" id="growMark" type="button">印を1マス広げる</button>
+      <button class="btn" id="clearMark" type="button">印をすべて外す</button>
+    </div>
+    <div class="row">
+      <button class="btn primary" id="heal" type="button">なじませて消す</button>
+      <label class="chk"><input id="grain" type="checkbox" checked>ざらつきを足して自然に見せる</label>
+      <span class="tag" id="markInfo">印：0マス</span>
+    </div>
+  </section>
+
+  <section class="sec">
+    <h2>7. 書き出す</h2>
     <div class="row">
       <button class="btn primary" id="copyAll" type="button">全体をCSVでコピー</button>
       <button class="btn" id="copyWin" type="button">表の範囲だけコピー</button>
@@ -224,7 +257,7 @@ function resample(){
   sel={x:Math.min(sel.x,W-1),y:Math.min(sel.y,H-1)};
   $('sizeTag').textContent=W+'×'+H+' = '+(W*H).toLocaleString()+' マス';
   scale=Math.max(2,Math.floor(1280/Math.max(W,H*0.75)));
-  undo=[]; $('undo').disabled=true;
+  undo=[]; $('undo').disabled=true; mask=new Uint8Array(W*H); updMark();
   view.width=W*scale; view.height=H*scale;
   renderAll();
 }
@@ -241,6 +274,8 @@ function renderView(){
     for(let y=0;y<=H;y++){vctx.moveTo(0,y*scale+.5);vctx.lineTo(W*scale,y*scale+.5);} vctx.stroke();}
   // 貼り付けプレビュー
   if(clip){vctx.save();vctx.globalAlpha=.6;vctx.drawImage(clip.cv,sel.x*scale,sel.y*scale,clip.w*scale,clip.h*scale);vctx.restore();}
+  // 消すマーク
+  vctx.fillStyle='rgba(0,216,240,.6)'; for(let i=0;i<mask.length;i++){if(mask[i])vctx.fillRect((i%W)*scale,Math.floor(i/W)*scale,scale,scale);}
   // 数値表の範囲
   const w=win(); const ac=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#1f5fe0';
   vctx.strokeStyle=ac; vctx.lineWidth=lw;
@@ -276,7 +311,7 @@ function renderTable(){
   for(let y=w.y0;y<w.y1;y++){h+='<tr><th>'+(y+1)+'</th>';
     for(let x=w.x0;x<w.x1;x++){const c=px(x,y),L=lum(c),fg=L>140?'#111':'#fff';
       const txt=mode==='lum'?L:(c[0]+'<br>'+c[1]+'<br>'+c[2]);
-      h+='<td data-x="'+x+'" data-y="'+y+'" class="'+(x===sel.x&&y===sel.y?'sel':'')+'" style="background:'+hex(c)+';color:'+fg+'" title="横'+(x+1)+' 縦'+(y+1)+'">'+txt+'</td>';}
+      h+='<td data-x="'+x+'" data-y="'+y+'" class="'+(x===sel.x&&y===sel.y?'sel':'')+(mask[y*W+x]?' mk':'')+'" style="background:'+hex(c)+';color:'+fg+'" title="横'+(x+1)+' 縦'+(y+1)+'">'+txt+'</td>';}
     h+='</tr>';}
   t.innerHTML=h;
 }
@@ -286,8 +321,8 @@ function renderAll(){renderView();renderReadout();renderTable();renderOut();}
 
 function setSel(x,y){sel={x:Math.min(W-1,Math.max(0,x)),y:Math.min(H-1,Math.max(0,y))};renderView();renderReadout();renderTable();}
 view.addEventListener('click',e=>{const r=view.getBoundingClientRect();
-  setSel(Math.floor((e.clientX-r.left)/r.width*W),Math.floor((e.clientY-r.top)/r.height*H));});
-$('tbl').addEventListener('click',e=>{const td=e.target.closest('td');if(!td)return;setSel(+td.dataset.x,+td.dataset.y);});
+  const x=Math.floor((e.clientX-r.left)/r.width*W),y=Math.floor((e.clientY-r.top)/r.height*H); if(markMode)toggleMark(x,y); setSel(x,y);});
+$('tbl').addEventListener('click',e=>{const td=e.target.closest('td');if(!td)return;if(markMode)toggleMark(+td.dataset.x,+td.dataset.y);setSel(+td.dataset.x,+td.dataset.y);});
 document.querySelectorAll('.nudge [data-d]').forEach(b=>b.addEventListener('click',()=>{const [dx,dy]=b.dataset.d.split(',').map(Number);setSel(sel.x+dx,sel.y+dy);}));
 $('mode').addEventListener('change',renderTable);
 $('width').addEventListener('change',e=>{W=+e.target.value;resample();});
@@ -311,7 +346,47 @@ $('file').addEventListener('change',e=>{const f=e.target.files&&e.target.files[0
   img.src=url;});
 $('sampleBtn').addEventListener('click',()=>{drawSample();resample();});
 window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',renderView);
-let undo=[], clip=null;
+let undo=[], clip=null, mask=new Uint8Array(1), markMode=false;
+function updMark(){let n=0;for(const v of mask)n+=v;$('markInfo').textContent='印：'+n+'マス';}
+function toggleMark(x,y){if(x<0||y<0||x>=W||y>=H)return;const i=y*W+x;mask[i]=mask[i]?0:1;updMark();}
+function lumAt(x,y){const i=(y*W+x)*4,d=data.data;return .299*d[i]+.587*d[i+1]+.114*d[i+2];}
+$('markMode').addEventListener('click',()=>{markMode=!markMode;const b=$('markMode');b.setAttribute('aria-pressed',markMode);b.textContent='タップで印を付ける：'+(markMode?'オン':'オフ');});
+$('autoMark').addEventListener('click',()=>{const r=rng(),th=+$('sens').value;let n=0;
+  const x1=Math.min(W,sel.x+r.w),y1=Math.min(H,sel.y+r.h);
+  for(let y=sel.y;y<y1;y++)for(let x=sel.x;x<x1;x++){const nb=[];
+    for(let yy=Math.max(0,y-2);yy<=Math.min(H-1,y+2);yy++)for(let xx=Math.max(0,x-2);xx<=Math.min(W-1,x+2);xx++)nb.push(lumAt(xx,yy));
+    nb.sort((a,b)=>a-b); if(lumAt(x,y)<nb[nb.length>>1]-th&&!mask[y*W+x]){mask[y*W+x]=1;n++;}}
+  updMark();renderView();renderTable();
+  toast(n?n+'マスに印を付けました。縁も消すなら「印を1マス広げる」を押してください':'暗い部分が見つかりませんでした。強さを「うすい線も」にするか、範囲を見直してください');});
+$('growMark').addEventListener('click',()=>{const m=mask.slice();
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){if(!mask[y*W+x])continue;if(x>0)m[y*W+x-1]=1;if(x<W-1)m[y*W+x+1]=1;if(y>0)m[(y-1)*W+x]=1;if(y<H-1)m[(y+1)*W+x]=1;}
+  mask=m;updMark();renderView();renderTable();});
+$('clearMark').addEventListener('click',()=>{mask=new Uint8Array(W*H);updMark();renderView();renderTable();});
+function gauss(){let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);}
+$('heal').addEventListener('click',()=>{
+  const idx=[];let bx0=W,by0=H,bx1=0,by1=0;
+  for(let i=0;i<mask.length;i++)if(mask[i]){idx.push(i);const x=i%W,y=(i/W)|0;bx0=Math.min(bx0,x);by0=Math.min(by0,y);bx1=Math.max(bx1,x);by1=Math.max(by1,y);}
+  if(!idx.length){toast('先に消したいマスに印を付けてください');return;}
+  if(idx.length===W*H){toast('全部のマスに印が付いていると、周りの色がないので埋められません');return;}
+  pushUndo(); const d=data.data, f=new Float32Array(W*H*3);
+  for(let i=0;i<W*H;i++){f[i*3]=d[i*4];f[i*3+1]=d[i*4+1];f[i*3+2]=d[i*4+2];}
+  // 周りの平均で仮埋め
+  const ex0=Math.max(0,bx0-2),ey0=Math.max(0,by0-2),ex1=Math.min(W-1,bx1+2),ey1=Math.min(H-1,by1+2);
+  let s=[0,0,0],c=0; for(let y=ey0;y<=ey1;y++)for(let x=ex0;x<=ex1;x++){const i=y*W+x;if(mask[i])continue;for(let k=0;k<3;k++)s[k]+=f[i*3+k];c++;}
+  if(!c){s=[128,128,128];c=1;}
+  for(const i of idx)for(let k=0;k<3;k++)f[i*3+k]=s[k]/c;
+  // 周りから少しずつ色をしみ込ませる（何度も平均を取り直す）
+  const it=Math.min(3000,200+4*Math.max(bx1-bx0,by1-by0)**1.5|0);
+  for(let t=0;t<it;t++)for(const i of idx){const x=i%W,y=(i/W)|0;
+    const n=[x>0?i-1:i,x<W-1?i+1:i,y>0?i-W:i,y<H-1?i+W:i];
+    for(let k=0;k<3;k++)f[i*3+k]=(f[n[0]*3+k]+f[n[1]*3+k]+f[n[2]*3+k]+f[n[3]*3+k])/4;}
+  // 元の写真のざらつきを真似る
+  if($('grain').checked){const df=[];
+    for(let y=ey0;y<=ey1;y++)for(let x=ex0;x<ex1;x++){const i=y*W+x;if(mask[i]||mask[i+1])continue;df.push(Math.abs(lumAt(x,y)-lumAt(x+1,y)));}
+    df.sort((a,b)=>a-b); const sd=df.length?df[df.length>>1]/1.4:0;
+    for(const i of idx){const g=gauss()*sd;for(let k=0;k<3;k++)f[i*3+k]+=g+gauss()*sd*.25;}}
+  for(const i of idx)for(let k=0;k<3;k++)d[i*4+k]=Math.max(0,Math.min(255,Math.round(f[i*3+k])));
+  mask=new Uint8Array(W*H);updMark();renderAll();toast(idx.length+'マスを周りの色になじませました。気に入らなければ「1つ戻す」で戻せます');});
 function pushUndo(){undo.push(new Uint8ClampedArray(data.data));if(undo.length>30)undo.shift();$('undo').disabled=false;}
 $('undo').addEventListener('click',()=>{const u=undo.pop();if(!u)return;data.data.set(u);$('undo').disabled=!undo.length;renderAll();toast('1つ前に戻しました');});
 function rng(){const el1=$('cw'),el2=$('ch');return {w:Math.max(1,Math.min(W,Math.round(+el1.value)||1)),h:Math.max(1,Math.min(H,Math.round(+el2.value)||1))};}
