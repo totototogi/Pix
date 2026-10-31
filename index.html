@@ -334,11 +334,12 @@ async function load(){
   try{
     T=await import(LIB);
     T.env.allowLocalModels=false;
-    const opt={progress_callback:progress};
-    M.proc=await T.AutoProcessor.from_pretrained(MODEL,opt);
-    M.vis=await T.CLIPVisionModelWithProjection.from_pretrained(MODEL,opt);
-    M.tok=await T.AutoTokenizer.from_pretrained(MODEL,opt);
-    M.txt=await T.CLIPTextModelWithProjection.from_pretrained(MODEL,opt);
+    // 設定は毎回新しく作る（使い回すと文章用AIに画像用の部品が読み込まれてしまう）
+    const opt=()=>({progress_callback:progress});
+    M.proc=await T.AutoProcessor.from_pretrained(MODEL,opt());
+    M.vis=await T.CLIPVisionModelWithProjection.from_pretrained(MODEL,opt());
+    M.tok=await T.AutoTokenizer.from_pretrained(MODEL,opt());
+    M.txt=await T.CLIPTextModelWithProjection.from_pretrained(MODEL,opt());
     $('aiBar').style.width='100%'; $('aiLoad').hidden=true; $('aiBody').hidden=false;
     busy=false; await analyze();
   }catch(e){ busy=false; T=null; $('aiLoad').disabled=false;
