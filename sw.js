@@ -1,5 +1,5 @@
 // 更新したら CACHE の番号を上げる
-const CACHE = "pixel-lab-v4";
+const CACHE = "pixel-lab-v5";
 const FILES = ["./", "index.html", "manifest.json", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));

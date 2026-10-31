@@ -55,6 +55,7 @@ label.file{position:relative;overflow:hidden}
 label.file input{position:absolute;inset:0;opacity:0;cursor:pointer}
 .tag{font-family:var(--f-mono);font-size:.75rem;padding:2px 8px;border-radius:99px;background:var(--bg);border:1px solid var(--line);color:var(--muted)}
 .stage{display:flex;justify-content:center;background:repeating-conic-gradient(var(--line) 0 25%,transparent 0 50%) 0 0/16px 16px;border-radius:8px;padding:8px}
+#loupe{width:100%;max-width:420px;height:auto;image-rendering:pixelated;cursor:crosshair;touch-action:manipulation;display:block}
 #view{max-width:100%;height:auto;image-rendering:pixelated;cursor:crosshair;touch-action:manipulation;display:block}
 .readout{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:center}
 .swatch{width:56px;height:56px;border-radius:8px;border:1px solid var(--line)}
@@ -116,18 +117,33 @@ ol.steps{margin:0;padding-left:1.3em;font-size:.86rem;color:var(--muted);display
         <option value="64">64 px</option>
         <option value="128">128 px</option>
         <option value="256">256 px</option>
+        <option value="512">512 px</option>
+        <option value="1024">1024 px</option>
+        <option value="orig">元のサイズ（最大2048）</option>
       </select>
       <span class="tag" id="sizeTag"></span>
     </div>
-    <div class="stage"><canvas id="view" aria-label="拡大した画像。タップでピクセルを選択"></canvas></div>
+    <div class="stage"><canvas id="view" aria-label="画像全体。タップでおおよその場所を選択"></canvas></div>
+    <div class="row" style="justify-content:space-between">
+      <span class="note" style="font-weight:700">ルーペ（選択中のマスの周り）</span>
+      <select id="lsz" aria-label="ルーペの範囲">
+        <option value="16">16×16</option>
+        <option value="32" selected>32×32</option>
+        <option value="64">64×64</option>
+      </select>
+    </div>
+    <div class="stage"><canvas id="loupe" width="640" height="640" aria-label="選択中のマスの周りを拡大したもの。タップで1マス単位で選択"></canvas></div>
     <div class="leg"><span><i style="border-color:#ff2d55"></i>選択中のマス（十字の中心）</span><span><i style="border-color:var(--accent)"></i>数値表の範囲</span><span><i style="border-color:#ffb020;border-top-style:dashed"></i>コピー・自動選択の範囲</span><span><i style="border-color:#00d8f0;border-top-width:8px"></i>消すマーク</span></div>
     <div class="navrow">
-      <div class="nudge" role="group" aria-label="選択を1マスずつ動かす">
+      <div style="display:flex;flex-direction:column;gap:6px;align-items:center">
+      <div class="nudge" role="group" aria-label="選択を動かす">
         <span></span><button class="btn" type="button" data-d="0,-1" aria-label="上へ">↑</button><span></span>
         <button class="btn" type="button" data-d="-1,0" aria-label="左へ">←</button><span class="c" id="posMini"></span><button class="btn" type="button" data-d="1,0" aria-label="右へ">→</button>
         <span></span><button class="btn" type="button" data-d="0,1" aria-label="下へ">↓</button><span></span>
       </div>
-      <p class="note" style="flex:1;min-width:12em">画像をタップしておおよその場所を選び、矢印で1マスずつ合わせられます。細かい分割のときに便利です。</p>
+      <select id="step" aria-label="矢印1回で動く量"><option value="1">1マスずつ</option><option value="10">10マスずつ</option><option value="50">50マスずつ</option></select>
+      </div>
+      <p class="note" style="flex:1;min-width:12em">大きい画像は、全体図でおおよその場所をタップし、ルーペの中をタップして1マス単位で合わせます。矢印でも動かせます。</p>
     </div>
   </section>
 
@@ -169,8 +185,8 @@ ol.steps{margin:0;padding-left:1.3em;font-size:.86rem;color:var(--muted);display
     <h2>5. 範囲をコピーして貼り付け</h2>
     <p class="note">選択中のマスを左上として、指定した大きさの範囲（黄色の点線）をコピーします。別のマスを選ぶと貼り付け先が半透明で表示されるので、位置を確認してから貼り付けてください。</p>
     <div class="edit">
-      <label>幅<input id="cw" type="number" min="1" max="256" value="4"></label>
-      <label>高さ<input id="ch" type="number" min="1" max="256" value="4"></label>
+      <label>幅<input id="cw" type="number" min="1" max="512" value="4"></label>
+      <label>高さ<input id="ch" type="number" min="1" max="512" value="4"></label>
       <button class="btn primary" id="copyBlk" type="button">この範囲をコピー</button>
     </div>
     <div class="clipbox">
@@ -248,6 +264,7 @@ function drawSample(){
   $('srcTag').textContent='見本画像';
 }
 function resample(){
+  const wv=$('width').value; W=wv==='orig'?src.width:+wv;
   H=Math.max(1,Math.round(src.height*W/src.width));
   let c=src, cw=src.width, ch=src.height;
   while(cw/2>W){ const t=document.createElement('canvas'); t.width=Math.round(cw/2); t.height=Math.round(ch/2);
@@ -256,7 +273,7 @@ function resample(){
   data=wctx.getImageData(0,0,W,H); orig=new Uint8ClampedArray(data.data);
   sel={x:Math.min(sel.x,W-1),y:Math.min(sel.y,H-1)};
   $('sizeTag').textContent=W+'×'+H+' = '+(W*H).toLocaleString()+' マス';
-  scale=Math.max(2,Math.floor(1280/Math.max(W,H*0.75)));
+  scale=Math.max(W>=900?1:2,Math.floor(1280/Math.max(W,H*0.75)));
   undo=[]; $('undo').disabled=true; mask=new Uint8Array(W*H); updMark();
   view.width=W*scale; view.height=H*scale;
   renderAll();
@@ -296,7 +313,30 @@ function renderView(){
   vctx.lineWidth=lw; vctx.strokeStyle='#ff2d55'; cross();
   if(scale>=4){vctx.lineWidth=Math.max(1,lw/2);vctx.strokeStyle='#ff2d55';vctx.strokeRect(sel.x*scale,sel.y*scale,scale,scale);}
   $('posMini').innerHTML=(sel.x+1)+'<br>'+(sel.y+1);
+  renderLoupe();
 }
+const lp=$('loupe'), lctx=lp.getContext('2d');
+function lwin(){const n=Math.min(+$('lsz').value,W,H)||1; const nw=Math.min(+$('lsz').value,W), nh=Math.min(+$('lsz').value,H);
+  return {x0:Math.max(0,Math.min(sel.x-(nw>>1),W-nw)),y0:Math.max(0,Math.min(sel.y-(nh>>1),H-nh)),nw,nh};}
+function renderLoupe(){const L=lwin(), cs=Math.floor(640/Math.max(L.nw,L.nh)); lp.width=L.nw*cs; lp.height=L.nh*cs;
+  lctx.imageSmoothingEnabled=false; lctx.clearRect(0,0,lp.width,lp.height);
+  lctx.drawImage(work,L.x0,L.y0,L.nw,L.nh,0,0,lp.width,lp.height);
+  if(clip){lctx.save();lctx.globalAlpha=.6;lctx.drawImage(clip.cv,(sel.x-L.x0)*cs,(sel.y-L.y0)*cs,clip.w*cs,clip.h*cs);lctx.restore();}
+  lctx.fillStyle='rgba(0,216,240,.6)';
+  for(let y=0;y<L.nh;y++)for(let x=0;x<L.nw;x++){if(mask[(L.y0+y)*W+L.x0+x])lctx.fillRect(x*cs,y*cs,cs,cs);}
+  if(cs>=8){lctx.strokeStyle='rgba(128,128,128,.4)';lctx.lineWidth=1;lctx.beginPath();
+    for(let i=0;i<=L.nw;i++){lctx.moveTo(i*cs+.5,0);lctx.lineTo(i*cs+.5,lp.height);}
+    for(let i=0;i<=L.nh;i++){lctx.moveTo(0,i*cs+.5);lctx.lineTo(lp.width,i*cs+.5);}lctx.stroke();}
+  const r=rng(); lctx.setLineDash([6,4]); lctx.lineWidth=3; lctx.strokeStyle='#ffb020';
+  lctx.strokeRect((sel.x-L.x0)*cs,(sel.y-L.y0)*cs,Math.min(r.w,W-sel.x)*cs,Math.min(r.h,H-sel.y)*cs); lctx.setLineDash([]);
+  const sx=(sel.x-L.x0)*cs, sy=(sel.y-L.y0)*cs;
+  lctx.lineWidth=6; lctx.strokeStyle='rgba(255,255,255,.95)'; lctx.strokeRect(sx-1,sy-1,cs+2,cs+2);
+  lctx.lineWidth=3; lctx.strokeStyle='#ff2d55'; lctx.strokeRect(sx-1,sy-1,cs+2,cs+2);}
+lp.addEventListener('click',e=>{const r=lp.getBoundingClientRect(),L=lwin();
+  const x=L.x0+Math.floor((e.clientX-r.left)/r.width*L.nw), y=L.y0+Math.floor((e.clientY-r.top)/r.height*L.nh);
+  if(markMode)toggleMark(x,y); setSel(x,y);});
+$('lsz').addEventListener('change',renderLoupe);
+
 function renderReadout(){
   const c=px(sel.x,sel.y);
   $('swatch').style.background=hex(c);
@@ -315,17 +355,19 @@ function renderTable(){
     h+='</tr>';}
   t.innerHTML=h;
 }
-function renderOut(){ const c=document.createElement('canvas'); const s=Math.max(1,Math.floor(512/W)); c.width=W*s;c.height=H*s;
+let outT; function renderOut(){clearTimeout(outT);outT=setTimeout(renderOutNow,W*H>200000?900:150);}
+function renderOutNow(){ const c=document.createElement('canvas'); const s=Math.max(1,Math.floor(512/W)); c.width=W*s;c.height=H*s;
   const x=c.getContext('2d'); x.imageSmoothingEnabled=false; x.drawImage(work,0,0,c.width,c.height); $('outImg').src=c.toDataURL('image/png'); }
 function renderAll(){renderView();renderReadout();renderTable();renderOut();}
+
 
 function setSel(x,y){sel={x:Math.min(W-1,Math.max(0,x)),y:Math.min(H-1,Math.max(0,y))};renderView();renderReadout();renderTable();}
 view.addEventListener('click',e=>{const r=view.getBoundingClientRect();
   const x=Math.floor((e.clientX-r.left)/r.width*W),y=Math.floor((e.clientY-r.top)/r.height*H); if(markMode)toggleMark(x,y); setSel(x,y);});
 $('tbl').addEventListener('click',e=>{const td=e.target.closest('td');if(!td)return;if(markMode)toggleMark(+td.dataset.x,+td.dataset.y);setSel(+td.dataset.x,+td.dataset.y);});
-document.querySelectorAll('.nudge [data-d]').forEach(b=>b.addEventListener('click',()=>{const [dx,dy]=b.dataset.d.split(',').map(Number);setSel(sel.x+dx,sel.y+dy);}));
+document.querySelectorAll('.nudge [data-d]').forEach(b=>b.addEventListener('click',()=>{const [dx,dy]=b.dataset.d.split(',').map(Number),st=+$('step').value;setSel(sel.x+dx*st,sel.y+dy*st);}));
 $('mode').addEventListener('change',renderTable);
-$('width').addEventListener('change',e=>{W=+e.target.value;resample();});
+$('width').addEventListener('change',()=>{resample();});
 $('eC').addEventListener('input',e=>{const v=e.target.value;$('eR').value=parseInt(v.slice(1,3),16);$('eG').value=parseInt(v.slice(3,5),16);$('eB').value=parseInt(v.slice(5,7),16);});
 ['eR','eG','eB'].forEach(id=>$(id).addEventListener('input',()=>{const c=['eR','eG','eB'].map(k=>Math.max(0,Math.min(255,+$(k).value||0)));$('eC').value=hex(c);}));
 $('apply').addEventListener('click',()=>{const c=['eR','eG','eB'].map(k=>Math.max(0,Math.min(255,Math.round(+$(k).value||0))));
@@ -335,12 +377,12 @@ function csv(x0,y0,x1,y1){let s='列,行,R,G,B\n';for(let y=y0;y<y1;y++)for(let 
 function copy(text,label){const ta=$('csv');ta.value=text;
   try{navigator.clipboard.writeText(text).then(()=>toast(label+'をコピーしました'),()=>{ta.focus();ta.select();toast('下の欄を選択しました。コピーして使ってください');});}
   catch(e){ta.focus();ta.select();toast('下の欄を選択しました。コピーして使ってください');}}
-$('copyAll').addEventListener('click',()=>copy(csv(0,0,W,H),W*H+'マス分のCSV'));
+$('copyAll').addEventListener('click',()=>{if(W*H>300000){toast('全体は'+(W*H).toLocaleString()+'マスあり、コピーするには大きすぎます。「表の範囲だけコピー」を使うか、横幅を256以下にしてください');return;}copy(csv(0,0,W,H),W*H+'マス分のCSV');});
 $('copyWin').addEventListener('click',()=>{const w=win();copy(csv(w.x0,w.y0,w.x1,w.y1),'表の範囲のCSV');});
 let tt; function toast(m){$('toast').textContent=m;clearTimeout(tt);tt=setTimeout(()=>$('toast').textContent='',4000);}
 $('file').addEventListener('change',e=>{const f=e.target.files&&e.target.files[0];if(!f)return;
   const url=URL.createObjectURL(f); const img=new Image();
-  img.onload=()=>{const m=Math.min(1,2000/Math.max(img.width,img.height)); src.width=Math.round(img.width*m); src.height=Math.round(img.height*m);
+  img.onload=()=>{const m=Math.min(1,2048/Math.max(img.width,img.height)); src.width=Math.round(img.width*m); src.height=Math.round(img.height*m);
     sctx.drawImage(img,0,0,src.width,src.height); URL.revokeObjectURL(url); $('srcTag').textContent=f.name+'（'+img.width+'×'+img.height+'）'; resample(); toast('写真を読み込みました');};
   img.onerror=()=>toast('この形式の画像は開けませんでした。JPEGかPNGを選んでください');
   img.src=url;});
@@ -387,7 +429,7 @@ $('heal').addEventListener('click',()=>{
     for(const i of idx){const g=gauss()*sd;for(let k=0;k<3;k++)f[i*3+k]+=g+gauss()*sd*.25;}}
   for(const i of idx)for(let k=0;k<3;k++)d[i*4+k]=Math.max(0,Math.min(255,Math.round(f[i*3+k])));
   mask=new Uint8Array(W*H);updMark();renderAll();toast(idx.length+'マスを周りの色になじませました。気に入らなければ「1つ戻す」で戻せます');});
-function pushUndo(){undo.push(new Uint8ClampedArray(data.data));if(undo.length>30)undo.shift();$('undo').disabled=false;}
+function pushUndo(){undo.push(new Uint8ClampedArray(data.data));const cap=Math.max(3,Math.min(30,Math.floor(6e7/data.data.length)));while(undo.length>cap)undo.shift();$('undo').disabled=false;}
 $('undo').addEventListener('click',()=>{const u=undo.pop();if(!u)return;data.data.set(u);$('undo').disabled=!undo.length;renderAll();toast('1つ前に戻しました');});
 function rng(){const el1=$('cw'),el2=$('ch');return {w:Math.max(1,Math.min(W,Math.round(+el1.value)||1)),h:Math.max(1,Math.min(H,Math.round(+el2.value)||1))};}
 ['cw','ch'].forEach(id=>$(id).addEventListener('input',renderView));
